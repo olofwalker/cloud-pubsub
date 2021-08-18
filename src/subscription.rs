@@ -92,12 +92,11 @@ impl Subscription {
         }
         let messages = response.received_messages.unwrap_or_default();
         let ack_ids: HashMap<String, Result<T, error::Error>> = messages
-            .as_slice()
             .into_iter()
-            .map(|packet| match T::from(packet.message.clone()) {
-                Ok(o) => (packet.ack_id.clone(), Ok(o)),
+            .map(|packet| match T::from(packet.message) {
+                Ok(o) => (packet.ack_id, Ok(o)),
                 Err(e) => (
-                    packet.ack_id.clone(),
+                    packet.ack_id,
                     Err(error::Error::PubSub {
                         code: 500,
                         status: format!("Failed converting pubsub {}", e),
