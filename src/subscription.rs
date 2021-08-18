@@ -6,6 +6,7 @@ use hyper::{Method, StatusCode};
 use lazy_static::lazy_static;
 use log::error;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::env;
 
 lazy_static! {
@@ -60,7 +61,7 @@ impl Subscription {
 
     pub async fn get_messages<T: FromPubSubMessage>(
         &self,
-    ) -> Result<(Vec<T>, Vec<String>), error::Error> {
+    ) -> Result<HashMap<String, Result<T, error::Error>>, error::Error> {
         let client = self
             .client
             .as_ref()
@@ -76,6 +77,7 @@ impl Subscription {
         *req.uri_mut() = uri.clone();
 
         let response = client.hyper_client().request(req).await?;
+
         if response.status() == StatusCode::NOT_FOUND {
             return Err(error::Error::PubSub {
                 code: 404,
@@ -89,23 +91,23 @@ impl Subscription {
             return Err(e);
         }
         let messages = response.received_messages.unwrap_or_default();
-        let ack_ids: Vec<String> = messages
+        let ack_ids: HashMap<String, Result<T, error::Error>> = messages
             .as_slice()
-            .iter()
-            .map(|packet| packet.ack_id.clone())
-            .collect();
-        let packets = messages
             .into_iter()
-            .filter_map(|packet| match T::from(packet.message) {
-                Ok(o) => Some(o),
-                Err(e) => {
-                    error!("Failed converting pubsub {}", e,);
-                    None
-                }
+            .map(|packet| match T::from(packet.message.clone()) {
+                Ok(o) => (packet.ack_id.clone(), Ok(o)),
+                Err(e) => (
+                    packet.ack_id.clone(),
+                    Err(error::Error::PubSub {
+                        code: 500,
+                        status: format!("Failed converting pubsub {}", e),
+                        message: self.name.clone(),
+                    }),
+                ),
             })
             .collect();
 
-        Ok((packets, ack_ids))
+        Ok(ack_ids)
     }
 
     pub async fn destroy(self) -> Result<(), error::Error> {

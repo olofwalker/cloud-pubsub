@@ -27,11 +27,12 @@ fn schedule_pubsub_pull(subscription: Arc<Subscription>) {
     task::spawn(async move {
         while subscription.client().is_running() {
             match subscription.get_messages::<UpdatePacket>().await {
-                Ok((packets, acks)) => {
-                    for packet in packets {
+                Ok(packets) => {
+                    for packet in &packets {
                         println!("Received: {:?}", packet);
                     }
 
+                    let acks: Vec<String> = packets.into_iter().map(|packet| packet.0).collect();
                     if !acks.is_empty() {
                         let s = Arc::clone(&subscription);
                         task::spawn(async move {
