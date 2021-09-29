@@ -6,7 +6,6 @@ use hyper::{Method, StatusCode};
 use lazy_static::lazy_static;
 use log::error;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::env;
 
 lazy_static! {
@@ -61,7 +60,7 @@ impl Subscription {
 
     pub async fn get_messages<T: FromPubSubMessage>(
         &self,
-    ) -> Result<HashMap<String, Result<T, error::Error>>, error::Error> {
+    ) -> Result<Vec<(Result<T, error::Error>, String)>, error::Error> {
         let client = self
             .client
             .as_ref()
@@ -91,22 +90,28 @@ impl Subscription {
             return Err(e);
         }
         let messages = response.received_messages.unwrap_or_default();
-        let ack_ids: HashMap<String, Result<T, error::Error>> = messages
+
+        let foo = messages
             .into_iter()
-            .map(|packet| match T::from(packet.message) {
-                Ok(o) => (packet.ack_id, Ok(o)),
-                Err(e) => (
-                    packet.ack_id,
-                    Err(error::Error::PubSub {
-                        code: 500,
-                        status: format!("Failed converting pubsub {}", e),
-                        message: self.name.clone(),
-                    }),
-                ),
-            })
+            .map(|m| (T::from(m.message), m.ack_id))
             .collect();
 
-        Ok(ack_ids)
+        // let ack_ids: HashMap<String, Result<T, error::Error>> = messages
+        //     .into_iter()
+        //     .map(|packet| match T::from(packet.message) {
+        //         Ok(o) => (packet.ack_id, Ok(o)),
+        //         Err(e) => (
+        //             packet.ack_id,
+        //             Err(error::Error::PubSub {
+        //                 code: 500,
+        //                 status: format!("Failed converting pubsub {}", e),
+        //                 message: self.name.clone(),
+        //             }),
+        //         ),
+        //     })
+        //     .collect();
+
+        Ok(foo)
     }
 
     pub async fn destroy(self) -> Result<(), error::Error> {
