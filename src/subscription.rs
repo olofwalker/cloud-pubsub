@@ -89,29 +89,13 @@ impl Subscription {
         if let Some(e) = response.error {
             return Err(e);
         }
-        let messages = response.received_messages.unwrap_or_default();
-
-        let foo = messages
+        let messages = response
+            .received_messages
+            .unwrap_or_default()
             .into_iter()
             .map(|m| (T::from(m.message), m.ack_id))
             .collect();
-
-        // let ack_ids: HashMap<String, Result<T, error::Error>> = messages
-        //     .into_iter()
-        //     .map(|packet| match T::from(packet.message) {
-        //         Ok(o) => (packet.ack_id, Ok(o)),
-        //         Err(e) => (
-        //             packet.ack_id,
-        //             Err(error::Error::PubSub {
-        //                 code: 500,
-        //                 status: format!("Failed converting pubsub {}", e),
-        //                 message: self.name.clone(),
-        //             }),
-        //         ),
-        //     })
-        //     .collect();
-
-        Ok(foo)
+        Ok(messages)
     }
 
     pub async fn destroy(self) -> Result<(), error::Error> {
