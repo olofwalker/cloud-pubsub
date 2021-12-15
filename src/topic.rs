@@ -40,11 +40,8 @@ impl Topic {
     pub async fn subscribe(&self) -> Result<Subscription, error::Error> {
         let client = self.client.clone();
 
-        let new_subscription = Subscription {
-            name: self.new_subscription_name(),
-            topic: Some(self.name.clone()),
-            client: None,
-        };
+        let new_subscription =
+            Subscription::new(self.new_subscription_name(), Some(self.name.clone()), None);
 
         let uri: hyper::Uri = format!("{}/v1/{}", *PUBSUB_HOST, new_subscription.name)
             .parse()

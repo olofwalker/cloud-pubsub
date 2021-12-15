@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::error;
-use crate::message::{FromPubSubMessage, Message};
+use crate::message::{FromPubSubMessage, Message, RawMessage};
 use hyper::body::Buf;
 use hyper::{Method, StatusCode};
 use lazy_static::lazy_static;
@@ -13,7 +13,7 @@ lazy_static! {
         .unwrap_or_else(|_| String::from("https://pubsub.googleapis.com"));
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Response {
     #[serde(alias = "receivedMessages")]
     received_messages: Option<Vec<Message>>,
@@ -31,12 +31,22 @@ pub struct Subscription {
     #[serde(skip_serializing)]
     pub name: String,
     pub topic: Option<String>,
+    #[serde(skip)]
+    pub max_messages: usize,
 
     #[serde(skip)]
     pub(crate) client: Option<Client>,
 }
 
 impl Subscription {
+    pub fn new(name: String, topic: Option<String>, client: Option<Client>) -> Self {
+        Subscription {
+            name,
+            topic,
+            max_messages: 100,
+            client,
+        }
+    }
     pub async fn acknowledge_messages(&self, ids: Vec<String>) {
         let client = self
             .client
@@ -57,9 +67,7 @@ impl Subscription {
         }
     }
 
-    pub async fn get_messages<T: FromPubSubMessage>(
-        &self,
-    ) -> Result<Vec<(Result<T, error::Error>, String)>, error::Error> {
+    async fn request_messages(&self) -> Result<Response, error::Error> {
         let client = self
             .client
             .as_ref()
@@ -69,7 +77,7 @@ impl Subscription {
             .parse()
             .unwrap();
 
-        let json = r#"{"maxMessages": 100}"#;
+        let json = format!(r#"{{ "maxMessages": {} }}"#, self.max_messages);
 
         let mut req = client.request(Method::POST, json);
         *req.uri_mut() = uri.clone();
@@ -79,20 +87,51 @@ impl Subscription {
         if response.status() == StatusCode::NOT_FOUND {
             return Err(error::Error::PubSub {
                 code: 404,
-                status: "Subscription Not Found".to_string(),
+                status: format!("Subscription '{}' not Found", self.name),
                 message: self.name.clone(),
             });
         }
         let body = hyper::body::aggregate(response).await?;
         let response: Response = serde_json::from_reader(body.reader())?;
+        Ok(response)
+    }
+
+    pub async fn get_messages<T: FromPubSubMessage>(
+        &self,
+    ) -> Result<Vec<(Result<T, error::Error>, String)>, error::Error> {
+        let response = match self.request_messages().await {
+            Ok(response) => response,
+            Err(err) => return Err(err),
+        };
+
         if let Some(e) = response.error {
             return Err(e);
         }
+
         let messages = response
             .received_messages
             .unwrap_or_default()
             .into_iter()
             .map(|m| (T::from(m.message), m.ack_id))
+            .collect();
+        Ok(messages)
+    }
+
+    pub async fn get_messages_raw(&self) -> Result<Vec<RawMessage>, error::Error> {
+        let response: Response = match self.request_messages().await {
+            Ok(response) => response,
+            Err(err) => return Err(err),
+        };
+
+        if let Some(e) = response.error {
+            return Err(e);
+        }
+
+        let messages = response
+            .received_messages
+            .unwrap_or_default()
+            .into_iter()
+            .map(RawMessage::from)
             .collect();
         Ok(messages)
     }

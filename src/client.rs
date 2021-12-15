@@ -72,6 +72,7 @@ impl Client {
             client: Some(self.clone()),
             name: format!("projects/{}/subscriptions/{}", self.project(), name),
             topic: None,
+            max_messages: 100,
         }
     }
 
